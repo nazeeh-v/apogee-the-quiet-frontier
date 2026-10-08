@@ -1,0 +1,22 @@
+/* DOM-adapter integration checks. These do not replace visual browser QA. */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+const listeners=new Map(),downloads=[];
+const node=(id)=>({id,innerHTML:'',textContent:'',open:false,addEventListener(type,fn){listeners.set(id+':'+type,fn);},showModal(){this.open=true;},close(){this.open=false;},classList:{add(){},remove(){}},getBoundingClientRect(){return {left:0,right:100,top:0,bottom:100}}});
+const nodes={'#app':node('app'),'#dialog':node('dialog'),'#toast':node('toast')},data=new Map();
+data.set('apogee-v1',JSON.stringify({version:1,design:{mission:'earth'},archive:[],visited:true}));
+globalThis.document={querySelector(s){return nodes[s]||null;},createElement(tag){return {click(){if(tag==='a')downloads.push(this.download);},remove(){},addEventListener(){}};},body:{append(){}}};
+globalThis.localStorage={getItem:k=>data.get(k)||null,setItem:(k,v)=>data.set(k,v)};
+globalThis.window={scrollTo(){},addEventListener(){}};
+Object.defineProperty(globalThis,'navigator',{value:{},configurable:true});
+const nativeTimeout=globalThis.setTimeout;globalThis.setTimeout=()=>0;globalThis.clearTimeout=()=>{};
+await import('../dist/app.js');
+const click=(dataset)=>listeners.get('app:click')({target:{closest(){return {dataset,disabled:false};}}});
+const html=()=>nodes['#app'].innerHTML;
+test('initial design renders all mission and engineering controls',()=>{assert.ok(html().includes('Small decisions.'));for(const x of ['earth','moon','mars'])assert.ok(html().includes(`data-mission="${x}"`));assert.ok(html().includes('Engineering margins'));assert.ok(html().includes('Scout bus'));});
+test('invalid design blocks launch in review and valid design unlocks it',()=>{click({component:'heavy',kind:'launcher'});click({view:'review'});assert.match(html(),/Budget exceeded/);assert.match(html(),/data-action="launch" disabled/);click({view:'design'});click({component:'small',kind:'launcher'});click({view:'review'});assert.match(html(),/32<span> \/ 32 runs/);assert.ok(!html().includes('data-action="launch" disabled'));});
+test('complete mission UI responds to required events and reaches debrief and archive',()=>{click({action:'launch'});assert.match(html(),/MISSION OPERATIONS/);for(let i=0;i<12;i++){const key=i===2?'safe':i===5?'calibrate':i===7?'burn':i===9?'routine':null;if(key){assert.match(html(),/RESPONSE REQUIRED/);assert.match(html(),/data-action="advance" disabled/);click({choice:key});}click({action:'advance'});}assert.match(html(),/MISSION DEBRIEF/);assert.match(html(),/Mission accomplished/);assert.match(html(),/Complete/);click({action:'archive'});assert.match(html(),/Earthwatch/);assert.match(html(),/✓ Achieved/);assert.equal(JSON.parse(data.get('apogee-v1')).archive.length,1);});
+test('saved run replays consistently after page reload',async()=>{await import('../dist/app.js?restore=1');const s=JSON.parse(data.get('apogee-v1'));assert.equal(s.run.turn,12);assert.equal(s.run.phase,'complete');assert.equal(s.run.retired,true);click({view:'debrief'});assert.match(html(),/Mission accomplished/);});
+test('export actions create portable blueprint and report downloads',()=>{click({action:'export'});click({action:'report'});assert.deepEqual(downloads,['apogee-earth-blueprint.json','apogee-earth-flight-report.md']);});
+test('handbook and science dialog open and close',()=>{click({action:'guide'});assert.ok(nodes['#dialog'].open);assert.match(nodes['#dialog'].innerHTML,/Welcome to mission control/);click({action:'science'});assert.match(nodes['#dialog'].innerHTML,/Ideal rocket equation/);click({action:'close'});assert.equal(nodes['#dialog'].open,false);});
+test('call signs are escaped before rendering',()=>{click({view:'design'});listeners.get('app:input')({target:{dataset:{text:'name'},value:'<img src=x onerror=alert(1)>'}});click({view:'review'});assert.ok(html().includes('&lt;img'));assert.ok(!html().includes('<img src=x'));});

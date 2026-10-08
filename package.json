@@ -1,0 +1,15 @@
+{
+  "name": "apogee-mission-lab",
+  "version": "2.0.1",
+  "private": true,
+  "type": "module",
+  "description": "A first-person space survival adventure with a mission design laboratory",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "check": "node --check dist/engine.js && node --check dist/app.js && node --check dist/survival.js && node --check dist/frontier.js && node --check dist/space-renderer.js && node --check dist/canvas-renderer.js",
+    "build": "node scripts/build.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
